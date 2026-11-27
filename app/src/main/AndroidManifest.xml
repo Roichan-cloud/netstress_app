@@ -9,7 +9,7 @@
     <application
         android:allowBackup="true"
         android:label="NetStress"
-        android:theme="@style/Theme.AppCompat.NoActionBar">
+        android:theme="@style/Theme.NetStress"> <!-- UBAH BAGIAN INI -->
         
         <activity
             android:name=".MainActivity"
