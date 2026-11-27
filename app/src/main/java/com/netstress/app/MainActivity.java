@@ -173,40 +173,41 @@ public class MainActivity extends AppCompatActivity {
         Toast.makeText(this, "Akses Shizuku Diberikan!", Toast.LENGTH_SHORT).show();
     }
 
-    private List<String> scanNetwork() {
-        List<String> ipList = new ArrayList<>();
-        try {
-            Process process = Shizuku.newProcess(new String[]{"sh", "-c", "ip neigh"}, null, null);
-            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
-            String line;
-            
-            Pattern pattern = Pattern.compile("(\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}).*?([0-9a-fA-F]{2}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2})");
-            
-            while ((line = reader.readLine()) != null) {
-                Matcher matcher = pattern.matcher(line);
-                if (matcher.find()) {
-                    String ip = matcher.group(1);
-                    String macPrefix = matcher.group(2).toLowerCase();
-                    
-                    if (isValidIp(ip)) {
-                        String vendor = getVendorFromMac(macPrefix);
-                        String displayText = ip;
-                        if (!vendor.equals("Unknown")) {
-                            displayText += "  [" + vendor + "]";
-                        }
-                        
-                        boolean exists = false;
-                        for(String s : ipList) { if(s.startsWith(ip)) exists = true; }
-                        if(!exists) ipList.add(displayText);
+private List<String> scanNetwork() {
+    List<String> ipList = new ArrayList<>();
+    try {
+        // Ganti Shizuku.newProcess pakai Runtime.exec
+        Process process = Runtime.getRuntime().exec("ip neigh");
+        BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+        String line;
+        
+        Pattern pattern = Pattern.compile("(\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}).*?([0-9a-fA-F]{2}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2})");
+        
+        while ((line = reader.readLine()) != null) {
+            Matcher matcher = pattern.matcher(line);
+            if (matcher.find()) {
+                String ip = matcher.group(1);
+                String macPrefix = matcher.group(2).toLowerCase();
+                
+                if (isValidIp(ip)) {
+                    String vendor = getVendorFromMac(macPrefix);
+                    String displayText = ip;
+                    if (!vendor.equals("Unknown")) {
+                        displayText += "  [" + vendor + "]";
                     }
+                    
+                    boolean exists = false;
+                    for(String s : ipList) { if(s.startsWith(ip)) exists = true; }
+                    if(!exists) ipList.add(displayText);
                 }
             }
-            process.waitFor();
-        } catch (Exception e) {
-            e.printStackTrace();
         }
-        return ipList;
+        process.waitFor();
+    } catch (Exception e) {
+        e.printStackTrace();
     }
+    return ipList;
+}
 
     private String getVendorFromMac(String macPrefix) {
         switch (macPrefix) {
