@@ -1,17 +1,5 @@
 buildscript {
-    repositories {
-        google()
-        mavenCentral()
-    }
     dependencies {
-        // TURUNIN VERSI INI DARI 8.1.0 JADI 7.4.2
         classpath 'com.android.tools.build:gradle:7.4.2'
-    }
-}
-
-allprojects {
-    repositories {
-        google()
-        mavenCentral()
     }
 }
