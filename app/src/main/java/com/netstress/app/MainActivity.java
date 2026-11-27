@@ -55,7 +55,6 @@ public class MainActivity extends AppCompatActivity {
             if (requestCode == SHIZUKU_CODE && grantResult == PackageManager.PERMISSION_GRANTED) {
                 activateFeature();
             }
-            return true;
         });
 
         btnStart.setOnClickListener(v -> {
