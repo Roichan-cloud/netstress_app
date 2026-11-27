@@ -8,7 +8,8 @@ import android.content.Intent;
 import android.os.IBinder;
 import android.util.Log;
 
-import java.io.IOException;
+import androidx.core.app.NotificationCompat;
+
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
@@ -25,10 +26,12 @@ public class StressService extends Service {
         if (targetIp == null) return START_NOT_STICKY;
 
         createNotificationChannel();
-        Notification notification = new Notification.Builder(this, CHANNEL_ID)
+        
+        Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("NetStress Aktif")
                 .setContentText("Menyerang " + targetIp)
                 .setSmallIcon(android.R.drawable.ic_dialog_alert)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
                 .build();
 
         startForeground(1, notification);
