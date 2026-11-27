@@ -17,8 +17,12 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
 import java.io.BufferedReader;
-import java.io.InputStreamReader;
+import java.io.FileReader;
+import java.net.Inet4Address;
+import java.net.InetAddress;
+import java.net.NetworkInterface;
 import java.util.ArrayList;
+import java.util.Enumeration;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -41,6 +45,7 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        // Minta izin notifikasi Android 13+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.POST_NOTIFICATIONS}, NOTIF_CODE);
@@ -67,8 +72,9 @@ public class MainActivity extends AppCompatActivity {
         ArrayAdapter<String> modeAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, modes);
         modeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         spinnerMode.setAdapter(modeAdapter);
-        spinnerMode.setSelection(2); // Default ke mode "Ganas"
+        spinnerMode.setSelection(2); // Default "Ganas"
 
+        // --- SETUP SHIZUKU ---
         btnShizuku.setOnClickListener(v -> {
             if (!Shizuku.pingBinder()) {
                 Toast.makeText(this, "Shizuku mati! Buka app Shizuku dulu.", Toast.LENGTH_LONG).show();
@@ -87,6 +93,7 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
+        // --- FITUR SCAN JARINGAN ---
         btnScan.setOnClickListener(v -> {
             if (!hasShizukuPermission) {
                 Toast.makeText(this, "Aktifkan Shizuku dulu!", Toast.LENGTH_SHORT).show();
@@ -94,7 +101,7 @@ public class MainActivity extends AppCompatActivity {
             }
             
             tvStatus.setText("SCANNING NETWORK...");
-            tvStatus.setTextColor(0xFFFFFF00);
+            tvStatus.setTextColor(0xFFFFFF00); // Kuning
             btnScan.setEnabled(false);
 
             new Thread(() -> {
@@ -103,19 +110,21 @@ public class MainActivity extends AppCompatActivity {
                 runOnUiThread(() -> {
                     btnScan.setEnabled(true);
                     tvStatus.setText("SYSTEM READY");
-                    tvStatus.setTextColor(0xFF00FFCC);
+                    tvStatus.setTextColor(0xFF00FFCC); // Cyan
 
                     if (ips.isEmpty()) {
-                        Toast.makeText(this, "Tidak ada perangkat ditemukan.", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(this, "Tidak ada perangkat ditemukan. Coba lagi.", Toast.LENGTH_SHORT).show();
                     } else {
                         ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, ips);
                         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
                         spinnerIps.setAdapter(adapter);
+                        Toast.makeText(this, ips.size() + " perangkat ditemukan!", Toast.LENGTH_SHORT).show();
                     }
                 });
             }).start();
         });
 
+        // --- TOMBOL MULAI STRIKE ---
         btnStart.setOnClickListener(v -> {
             String ip = "";
             if (spinnerIps.getSelectedItem() != null) {
@@ -134,15 +143,15 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
 
-            // --- AMBIL MODE SERANGAN ---
+            // Ambil mode serangan
             int modePosition = spinnerMode.getSelectedItemPosition();
-            int workers = 10000, payload = 1024; // Default mode 3
+            int workers = 10000, payload = 1024;
             
-            if (modePosition == 0) { workers = 1000; payload = 128; }       // Santai
-            else if (modePosition == 1) { workers = 5000; payload = 512; }   // Sedang
-            else if (modePosition == 2) { workers = 10000; payload = 1024; } // Ganas
-            else if (modePosition == 3) { workers = 20000; payload = 1472; } // Brutal
-            else if (modePosition == 4) { workers = 50000; payload = 1472; } // Nuclear
+            if (modePosition == 0) { workers = 1000; payload = 128; }
+            else if (modePosition == 1) { workers = 5000; payload = 512; }
+            else if (modePosition == 2) { workers = 10000; payload = 1024; }
+            else if (modePosition == 3) { workers = 20000; payload = 1472; }
+            else if (modePosition == 4) { workers = 50000; payload = 1472; }
 
             Intent intent = new Intent(this, StressService.class);
             intent.putExtra("TARGET_IP", ip);
@@ -157,6 +166,7 @@ public class MainActivity extends AppCompatActivity {
             btnStop.setEnabled(true);
         });
 
+        // --- TOMBOL STOP ---
         btnStop.setOnClickListener(v -> {
             stopService(new Intent(this, StressService.class));
             tvStatus.setText("SYSTEM READY");
@@ -173,42 +183,89 @@ public class MainActivity extends AppCompatActivity {
         Toast.makeText(this, "Akses Shizuku Diberikan!", Toast.LENGTH_SHORT).show();
     }
 
-private List<String> scanNetwork() {
-    List<String> ipList = new ArrayList<>();
-    try {
-        // Ganti Shizuku.newProcess pakai Runtime.exec
-        Process process = Runtime.getRuntime().exec("ip neigh");
-        BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
-        String line;
+    // --- LOGIKA SCAN JARINGAN (PING SWEEP + ARP) ---
+    private List<String> scanNetwork() {
+        List<String> ipList = new ArrayList<>();
         
-        Pattern pattern = Pattern.compile("(\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}).*?([0-9a-fA-F]{2}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2})");
-        
-        while ((line = reader.readLine()) != null) {
-            Matcher matcher = pattern.matcher(line);
-            if (matcher.find()) {
-                String ip = matcher.group(1);
-                String macPrefix = matcher.group(2).toLowerCase();
-                
-                if (isValidIp(ip)) {
-                    String vendor = getVendorFromMac(macPrefix);
-                    String displayText = ip;
-                    if (!vendor.equals("Unknown")) {
-                        displayText += "  [" + vendor + "]";
-                    }
+        // 1. Pancingan ping biar tabel ARP keisi
+        pingSweep();
+
+        // 2. Baca tabel ARP
+        try {
+            BufferedReader br = new BufferedReader(new FileReader("/proc/net/arp"));
+            String line;
+            br.readLine(); // Skip header
+            
+            while ((line = br.readLine()) != null) {
+                String[] tokens = line.split("\\s+");
+                if (tokens.length >= 4) {
+                    String ip = tokens[0];
+                    String mac = tokens[3];
+                    String flags = tokens[2];
                     
-                    boolean exists = false;
-                    for(String s : ipList) { if(s.startsWith(ip)) exists = true; }
-                    if(!exists) ipList.add(displayText);
+                    // Hanya ambil yang statusnya aktif (0x2)
+                    if (flags.equals("0x2") && isValidIp(ip)) {
+                        String macPrefix = mac.length() >= 8 ? mac.substring(0, 8).toLowerCase() : "00:00:";
+                        String vendor = getVendorFromMac(macPrefix);
+                        
+                        String displayText = ip;
+                        if (!vendor.equals("Unknown")) {
+                            displayText += "  [" + vendor + "]";
+                        }
+                        
+                        boolean exists = false;
+                        for(String s : ipList) { if(s.startsWith(ip)) exists = true; }
+                        if(!exists) ipList.add(displayText);
+                    }
                 }
             }
+            br.close();
+        } catch (Exception e) {
+            e.printStackTrace();
         }
-        process.waitFor();
-    } catch (Exception e) {
-        e.printStackTrace();
+        return ipList;
     }
-    return ipList;
-}
 
+    private void pingSweep() {
+        try {
+            // Cari IP base dari network interface HP
+            String myIp = "192.168.1"; // Default fallback
+            Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+            while (interfaces.hasMoreElements()) {
+                NetworkInterface ni = interfaces.nextElement();
+                Enumeration<InetAddress> addrs = ni.getInetAddresses();
+                while (addrs.hasMoreElements()) {
+                    InetAddress addr = addrs.nextElement();
+                    if (!addr.isLoopbackAddress() && addr instanceof Inet4Address) {
+                        String ip = addr.getHostAddress();
+                        if (ip.startsWith("192.168.") || ip.startsWith("10.")) {
+                            String[] parts = ip.split("\\.");
+                            myIp = parts[0] + "." + parts[1] + "." + parts[2];
+                        }
+                    }
+                }
+            }
+
+            // Ping 254 IP secara paralel (Thread)
+            for (int i = 1; i < 255; i++) {
+                final String targetIp = myIp + "." + i;
+                new Thread(() -> {
+                    try {
+                        Process p = Runtime.getRuntime().exec("ping -c 1 -W 1 " + targetIp);
+                        p.waitFor();
+                    } catch (Exception ignored) {}
+                }).start();
+            }
+            
+            // Tunggu 1.5 detik biar HP lain ngebales
+            Thread.sleep(1500);
+            
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    // --- LOGIKA DETEKSI MERK HP DARI MAC ADDRESS ---
     private String getVendorFromMac(String macPrefix) {
         switch (macPrefix) {
             case "3c:5a:": case "64:cc:": case "50:8f:": case "28:6c:": case "78:11:": return "Xiaomi/Redmi";
@@ -228,8 +285,12 @@ private List<String> scanNetwork() {
         String[] parts = ip.split("\\.");
         if (parts.length != 4) return false;
         for (String part : parts) {
-            int num = Integer.parseInt(part);
-            if (num < 0 || num > 255) return false;
+            try {
+                int num = Integer.parseInt(part);
+                if (num < 0 || num > 255) return false;
+            } catch (NumberFormatException e) {
+                return false;
+            }
         }
         return true;
     }
