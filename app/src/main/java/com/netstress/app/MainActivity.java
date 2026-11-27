@@ -16,16 +16,14 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
-import java.io.BufferedReader;
-import java.io.FileReader;
 import java.net.Inet4Address;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.NetworkInterface;
+import java.net.Socket;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import rikka.shizuku.Shizuku;
 
@@ -93,7 +91,7 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        // --- FITUR SCAN JARINGAN ---
+        // --- FITUR SCAN JARINGAN (TCP SCAN) ---
         btnScan.setOnClickListener(v -> {
             if (!hasShizukuPermission) {
                 Toast.makeText(this, "Aktifkan Shizuku dulu!", Toast.LENGTH_SHORT).show();
@@ -183,53 +181,49 @@ public class MainActivity extends AppCompatActivity {
         Toast.makeText(this, "Akses Shizuku Diberikan!", Toast.LENGTH_SHORT).show();
     }
 
-    // --- LOGIKA SCAN JARINGAN (PING SWEEP + ARP) ---
+    // --- LOGIKA SCAN JARINGAN (TCP CONNECT SCAN) ---
     private List<String> scanNetwork() {
         List<String> ipList = new ArrayList<>();
+        List<String> activeIps = new ArrayList<>();
         
-        // 1. Pancingan ping biar tabel ARP keisi
-        pingSweep();
+        // 1. Dapetin IP Address HP lo sendiri buat nentuin subnet (misal 192.168.1)
+        String baseIp = getBaseIp();
 
-        // 2. Baca tabel ARP
-        try {
-            BufferedReader br = new BufferedReader(new FileReader("/proc/net/arp"));
-            String line;
-            br.readLine(); // Skip header
-            
-            while ((line = br.readLine()) != null) {
-                String[] tokens = line.split("\\s+");
-                if (tokens.length >= 4) {
-                    String ip = tokens[0];
-                    String mac = tokens[3];
-                    String flags = tokens[2];
-                    
-                    // Hanya ambil yang statusnya aktif (0x2)
-                    if (flags.equals("0x2") && isValidIp(ip)) {
-                        String macPrefix = mac.length() >= 8 ? mac.substring(0, 8).toLowerCase() : "00:00:";
-                        String vendor = getVendorFromMac(macPrefix);
-                        
-                        String displayText = ip;
-                        if (!vendor.equals("Unknown")) {
-                            displayText += "  [" + vendor + "]";
-                        }
-                        
-                        boolean exists = false;
-                        for(String s : ipList) { if(s.startsWith(ip)) exists = true; }
-                        if(!exists) ipList.add(displayText);
+        // 2. Lakuin TCP Connect Scan paralel ke 254 IP
+        List<Thread> threads = new ArrayList<>();
+        for (int i = 1; i < 255; i++) {
+            final String targetIp = baseIp + "." + i;
+            Thread t = new Thread(() -> {
+                // Cek port 80 (HTTP), 443 (HTTPS), 5555 (ADB), atau 8080
+                if (isPortOpen(targetIp, 80) || isPortOpen(targetIp, 443) || isPortOpen(targetIp, 5555) || isPortOpen(targetIp, 8080)) {
+                    synchronized (activeIps) {
+                        activeIps.add(targetIp);
                     }
                 }
-            }
-            br.close();
-        } catch (Exception e) {
-            e.printStackTrace();
+            });
+            threads.add(t);
+            t.start();
         }
+
+        // Tunggu semua thread selesai (maksimal 1 detik)
+        for (Thread t : threads) {
+            try {
+                t.join(1000);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+
+        // 3. Rapihin hasil
+        for (String ip : activeIps) {
+            ipList.add(ip); 
+        }
+
         return ipList;
     }
 
-    private void pingSweep() {
+    private String getBaseIp() {
         try {
-            // Cari IP base dari network interface HP
-            String myIp = "192.168.1"; // Default fallback
             Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
             while (interfaces.hasMoreElements()) {
                 NetworkInterface ni = interfaces.nextElement();
@@ -240,59 +234,26 @@ public class MainActivity extends AppCompatActivity {
                         String ip = addr.getHostAddress();
                         if (ip.startsWith("192.168.") || ip.startsWith("10.")) {
                             String[] parts = ip.split("\\.");
-                            myIp = parts[0] + "." + parts[1] + "." + parts[2];
+                            return parts[0] + "." + parts[1] + "." + parts[2];
                         }
                     }
                 }
             }
-
-            // Ping 254 IP secara paralel (Thread)
-            for (int i = 1; i < 255; i++) {
-                final String targetIp = myIp + "." + i;
-                new Thread(() -> {
-                    try {
-                        Process p = Runtime.getRuntime().exec("ping -c 1 -W 1 " + targetIp);
-                        p.waitFor();
-                    } catch (Exception ignored) {}
-                }).start();
-            }
-            
-            // Tunggu 1.5 detik biar HP lain ngebales
-            Thread.sleep(1500);
-            
         } catch (Exception e) {
             e.printStackTrace();
         }
+        return "192.168.1"; // Fallback
     }
 
-    // --- LOGIKA DETEKSI MERK HP DARI MAC ADDRESS ---
-    private String getVendorFromMac(String macPrefix) {
-        switch (macPrefix) {
-            case "3c:5a:": case "64:cc:": case "50:8f:": case "28:6c:": case "78:11:": return "Xiaomi/Redmi";
-            case "a4:50:": case "8c:77:": case "34:23:": case "5c:0a:": return "Samsung";
-            case "f0:18:": case "3c:2e:": case "9c:35:": return "Apple/iPhone";
-            case "00:1a:": case "2c:54:": case "00:9a:": case "00:0c:": return "Huawei";
-            case "d4:6a:": case "c0:ee:": case "10:7b:": case "2c:8a:": return "Oppo";
-            case "00:ae:": case "00:9e:": case "d0:65:": return "Vivo";
-            case "00:1e:": case "00:26:": case "b0:be:": return "Asus";
-            case "d8:3a:": case "c0:3f:": case "e0:2c:": return "TP-Link";
-            case "00:e0:": case "00:11:": return "Router/Gateway";
-            default: return "Unknown";
+    private boolean isPortOpen(String ip, int port) {
+        try {
+            Socket socket = new Socket();
+            socket.connect(new InetSocketAddress(ip, port), 200); // Timeout 200ms
+            socket.close();
+            return true;
+        } catch (Exception e) {
+            return false;
         }
-    }
-
-    private boolean isValidIp(String ip) {
-        String[] parts = ip.split("\\.");
-        if (parts.length != 4) return false;
-        for (String part : parts) {
-            try {
-                int num = Integer.parseInt(part);
-                if (num < 0 || num > 255) return false;
-            } catch (NumberFormatException e) {
-                return false;
-            }
-        }
-        return true;
     }
 
     @Override
