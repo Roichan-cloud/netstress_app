@@ -31,4 +31,7 @@ dependencies {
     
     // Library UI Android
     implementation 'androidx.appcompat:appcompat:1.6.1'
+    
+    // TAMBAHKAN INI BIAR GRADLE GAK BINGUNG
+    implementation 'org.jetbrains.kotlin:kotlin-stdlib:1.7.10'
 }
