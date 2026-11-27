@@ -3,6 +3,7 @@ package com.netstress.app;
 import android.Manifest;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.widget.Button;
 import android.widget.EditText;
@@ -11,14 +12,15 @@ import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
-
-import rikka.shizuku.Shizuku;
+import androidx.core.content.ContextCompat;
 
 import rikka.shizuku.Shizuku;
 
 public class MainActivity extends AppCompatActivity {
 
     private static final int SHIZUKU_CODE = 1001;
+    private static final int NOTIF_CODE = 1002;
+    
     private Button btnShizuku, btnStart, btnStop;
     private EditText etTargetIp;
     private TextView tvStatus;
@@ -29,7 +31,12 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.POST_NOTIFICATIONS}, 1);
+        // Minta izin notifikasi (Wajib buat Android 13+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.POST_NOTIFICATIONS}, NOTIF_CODE);
+            }
+        }
 
         btnShizuku = findViewById(R.id.btnShizuku);
         btnStart = findViewById(R.id.btnStart);
@@ -37,10 +44,9 @@ public class MainActivity extends AppCompatActivity {
         etTargetIp = findViewById(R.id.etTargetIp);
         tvStatus = findViewById(R.id.tvStatus);
 
-        // Setup Shizuku
         btnShizuku.setOnClickListener(v -> {
             if (!Shizuku.pingBinder()) {
-                Toast.makeText(this, "Shizuku tidak aktif! Buka app Shizuku dulu.", Toast.LENGTH_LONG).show();
+                Toast.makeText(this, "Shizuku mati! Buka app Shizuku dulu.", Toast.LENGTH_LONG).show();
                 return;
             }
             if (Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) {
@@ -50,7 +56,6 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        // Listener izin Shizuku
         Shizuku.addRequestPermissionResultListener((requestCode, grantResult) -> {
             if (requestCode == SHIZUKU_CODE && grantResult == PackageManager.PERMISSION_GRANTED) {
                 activateFeature();
@@ -68,10 +73,11 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
 
-            // Jalanin Service di background
             Intent intent = new Intent(this, StressService.class);
             intent.putExtra("TARGET_IP", ip);
-            startForegroundService(intent);
+            
+            // Pake ContextCompat biar aman di semua versi Android
+            ContextCompat.startForegroundService(this, intent);
             
             tvStatus.setText("Status: STRIKING");
             tvStatus.setTextColor(0xFF00FFCC);
@@ -95,7 +101,6 @@ public class MainActivity extends AppCompatActivity {
         Toast.makeText(this, "Akses Shizuku Diberikan!", Toast.LENGTH_SHORT).show();
     }
 
-    // Wajib buat Shizuku
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         if (requestCode == SHIZUKU_CODE) {
