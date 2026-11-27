@@ -4,7 +4,8 @@ buildscript {
         mavenCentral()
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:8.1.0'
+        // TURUNIN VERSI INI DARI 8.1.0 JADI 7.4.2
+        classpath 'com.android.tools.build:gradle:7.4.2'
     }
 }
 
